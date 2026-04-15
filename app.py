@@ -8,6 +8,10 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import base64, io, os, nibabel as nib
 from model_utils import normalize
+import shutil
+
+# Prevent GPU issues on Render
+tf.config.set_visible_devices([], 'GPU')
 
 app = Flask(__name__)
 CORS(app)
@@ -31,22 +35,26 @@ def dice_class(index):
     dice.__name__ = f"dice_class_{index}"
     return dice
 
-# ── Load model ───────────────────────────────────────────────────
+# ── Model Lazy Loading ───────────────────────────────────────────
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "best_model (3).keras")
-print(f"Loading model from: {MODEL_PATH}")
+model = None
 
-model = load_model(
-    MODEL_PATH,
-    custom_objects={
-        "combined_loss": combined_loss,
-        "dice_coef": dice_coef,
-        "dice_class_0": dice_class(0),
-        "dice_class_1": dice_class(1),
-        "dice_class_2": dice_class(2),
-        "dice_class_3": dice_class(3),
-    }
-)
-print("✅ Model loaded!")
+def get_model():
+    global model
+    if model is None:
+        print("Loading model...")
+        model = load_model(
+            MODEL_PATH,
+            custom_objects={
+                "combined_loss": combined_loss,
+                "dice_coef": dice_coef,
+                "dice_class_0": dice_class(0),
+                "dice_class_1": dice_class(1),
+                "dice_class_2": dice_class(2),
+                "dice_class_3": dice_class(3),
+            }
+        )
+    return model
 
 # ── Helper ───────────────────────────────────────────────────────
 def fig_to_base64(fig):
@@ -60,7 +68,10 @@ def fig_to_base64(fig):
 # ── Routes ───────────────────────────────────────────────────────
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "ok", "model": "loaded"})
+    return jsonify({
+        "status": "ok",
+        "model_loaded": model is not None
+    })
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -70,13 +81,12 @@ def predict():
         if not files or len(files) < 4:
             return jsonify({"error": "Upload 4 MRI files"}), 400
 
-        # ✅ CREATE TEMP FOLDER
         tmp_dir = os.path.join(os.getcwd(), "temp")
         os.makedirs(tmp_dir, exist_ok=True)
 
         patient = None
 
-        # Save files
+        # Save uploaded files
         for file in files:
             filename = file.filename
             path = os.path.join(tmp_dir, filename)
@@ -104,8 +114,11 @@ def predict():
         slice_idx = image.shape[2] // 2
         image_slice = image[:,:,slice_idx,:][np.newaxis,...]
 
+        # Load model properly
+        model_instance = get_model()
+
         # Prediction
-        pred = model.predict(image_slice, verbose=0)
+        pred = model_instance.predict(image_slice, verbose=0)
         pred_mask = np.argmax(pred[0], axis=-1)
 
         # Visualization
@@ -121,11 +134,11 @@ def predict():
 
         seg_image = fig_to_base64(fig)
 
-        # Volume estimate
+        # Volume estimation (optimized)
         label_counts = {0:0,1:0,2:0,3:0}
 
-        for s in range(0, image.shape[2], max(1, image.shape[2]//10)):
-            p = model.predict(image[:,:,s,:][np.newaxis,...], verbose=0)
+        for s in range(0, image.shape[2], max(1, image.shape[2]//20)):
+            p = model_instance.predict(image[:,:,s,:][np.newaxis,...], verbose=0)
             pm = np.argmax(p[0], axis=-1)
 
             for l in range(4):
@@ -135,6 +148,9 @@ def predict():
         total = round(vols[1] + vols[2] + vols[3], 2)
 
         severity = "HIGH" if total>50 else "MODERATE" if total>20 else "LOW"
+
+        # Cleanup temp folder
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
         return jsonify({
             "segmentation_image": seg_image,
@@ -155,6 +171,7 @@ def predict():
             "trace": traceback.format_exc()
         }), 500
 
+# ── Run ──────────────────────────────────────────────────────────
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
