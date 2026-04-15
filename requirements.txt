@@ -1,7 +1,7 @@
 flask
 flask-cors
-tensorflow-cpu
 numpy
 matplotlib
 nibabel
+tensorflow==2.13.0
 gunicorn
