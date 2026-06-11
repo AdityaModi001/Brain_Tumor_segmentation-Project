@@ -10,6 +10,7 @@ import base64, io, os, nibabel as nib
 from model_utils import normalize
 import shutil
 import os
+from flask import render_template
 
 # Prevent GPU issues on Render
 tf.config.set_visible_devices([], 'GPU')
@@ -65,7 +66,9 @@ def fig_to_base64(fig):
     result = base64.b64encode(buf.read()).decode('utf-8')
     plt.close(fig)
     return result
-
+@app.route("/")
+def home():
+    return render_template("index.html")
 # ── Routes ───────────────────────────────────────────────────────
 @app.route('/health', methods=['GET'])
 def health():
