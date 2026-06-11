@@ -68,7 +68,7 @@ def fig_to_base64(fig):
     return result
 @app.route("/")
 def home():
-    return render_template("index.html")
+    return render_template("../frontend/index.html")
 # ── Routes ───────────────────────────────────────────────────────
 @app.route('/health', methods=['GET'])
 def health():
