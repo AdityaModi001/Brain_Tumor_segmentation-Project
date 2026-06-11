@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import base64, io, os, nibabel as nib
 from model_utils import normalize
 import shutil
+import os
 
 # Prevent GPU issues on Render
 tf.config.set_visible_devices([], 'GPU')
@@ -172,6 +173,6 @@ def predict():
         }), 500
 
 # ── Run ──────────────────────────────────────────────────────────
-if __name__ == '__main__':
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host="0.0.0.0", port=port)
